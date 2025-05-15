@@ -16,6 +16,8 @@ This Python script simulates and visualizes a 2D grid of simple "integrate-and-f
     *   **Escape Key:** Pressing the Escape key quits the simulation.
 8.  **Configurable Parameters:** Key aspects of the simulation (grid size, threshold, energy levels, fluctuation rate, interaction strength, click radius) are defined as constants at the beginning of the script, allowing for easy experimentation with different behaviors.
 
+[Screenshot showing neural automaton running with 3 stages of an erased circle](image.png)
+
 **Dependencies:**
 
 *   `pygame`: For graphics, window management, and event handling.
