@@ -25,3 +25,5 @@ This Python script simulates and visualizes a 2D grid of simple "integrate-and-f
 *   `sys`: For exiting the program cleanly.
 
 In essence, the code creates a visually engaging cellular automaton where simple rules governing local interactions lead to complex emergent patterns like spreading waves and interference phenomena, which the user can interact with directly.
+
+Note: You can try the new Neural 1v1 here: https://sites.google.com/view/neural-1v1/neural-1v1
