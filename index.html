@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Dynamically Resizing Neural Grid Simulation (Tunable)</title>
+
+    <style>
+        /* --- CSS --- */
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden; /* Prevent scrollbars */
+            background-color: #000; /* Black background */
+            font-family: sans-serif;
+            color: #eee;
+        }
+
+        canvas {
+            display: block; /* Remove extra space below canvas */
+            /* Make canvas element fill the viewport */
+            width: 100vw;
+            height: 100vh;
+            background-color: #111; /* Slightly lighter background for canvas visibility */
+            image-rendering: pixelated; /* Optional: Force sharp pixels on scaling */
+            image-rendering: crisp-edges; /* Optional: Alternative for sharp pixels */
+        }
+
+        /* --- Settings Panel Styles --- */
+        #settingsIcon {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            background-color: rgba(100, 100, 100, 0.7);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 18px;
+            z-index: 1001;
+            transition: opacity 0.5s ease-out;
+        }
+
+        #settingsPanel {
+            display: none; /* Hidden by default */
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 90%;
+            max-width: 450px;
+            max-height: 80vh;
+            overflow-y: auto;
+            background-color: rgba(40, 40, 40, 0.95);
+            border: 1px solid #666;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            color: #eee;
+        }
+
+        #settingsPanel h2 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            text-align: center;
+            color: #fff;
+            border-bottom: 1px solid #555;
+            padding-bottom: 10px;
+        }
+
+        .settings-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            padding: 5px 0;
+            border-bottom: 1px solid #333;
+        }
+         .settings-row:last-of-type {
+             border-bottom: none;
+         }
+
+
+        .settings-row label {
+            flex-basis: 50%; /* Adjust as needed */
+            margin-right: 10px;
+            font-size: 0.9em;
+        }
+
+        .settings-row input[type="number"],
+        .settings-row input[type="text"] /* For potential future color inputs etc */
+         {
+            flex-basis: 35%; /* Adjust as needed */
+            padding: 4px 6px;
+            background-color: #555;
+            border: 1px solid #777;
+            color: #eee;
+            border-radius: 3px;
+            text-align: right;
+            font-size: 0.9em;
+            width: 80px; /* Fixed width can help alignment */
+        }
+        /* Remove spinners for number inputs (optional) */
+        .settings-row input[type=number]::-webkit-inner-spin-button,
+        .settings-row input[type=number]::-webkit-outer-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        .settings-row input[type=number] {
+          -moz-appearance: textfield; /* Firefox */
+        }
+
+
+        .help-icon {
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            line-height: 18px;
+            text-align: center;
+            background-color: #668;
+            color: #fff;
+            border-radius: 50%;
+            font-size: 0.8em;
+            font-weight: bold;
+            cursor: help;
+            margin-left: 8px;
+            user-select: none; /* Prevent text selection */
+        }
+
+        #settingsCloseButton, #settingsResetButton {
+            display: block; /* Make buttons take full width */
+            width: calc(50% - 5px); /* Two buttons side-by-side */
+            padding: 8px 15px;
+            margin-top: 15px;
+            background-color: #557;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            text-align: center;
+            font-size: 0.9em;
+            float: left; /* Position buttons */
+        }
+         #settingsResetButton {
+             float: right;
+             background-color: #855;
+         }
+
+        #settingsCloseButton:hover, #settingsResetButton:hover {
+            opacity: 0.9;
+        }
+         /* Clear floats after buttons */
+         #settingsPanel::after {
+             content: "";
+             display: table;
+             clear: both;
+         }
+
+    </style>
+</head>
+<body>
+    <!-- The Canvas element where the simulation is drawn -->
+    <canvas id="simulationCanvas"></canvas>
+
+    <!-- Settings Icon -->
+    <div id="settingsIcon" title="Show Settings (\)">?</div>
+
+    <!-- Settings Panel -->
+    <div id="settingsPanel">
+        <h2>Simulation Parameters</h2>
+        <div id="settingsContent">
+            <!-- Parameter rows will be generated here by JS -->
+        </div>
+        <button id="settingsCloseButton">Close</button>
+        <button id="settingsResetButton">Reset Defaults</button>
+    </div>
+
+    <script>
+        // --- JavaScript ---
+
+        // --- Default Simulation Parameters (Constants for Reset) ---
+        const defaultParams = {
+            THRESHOLD: 1.0,
+            FLUCTUATION_AMOUNT: 0.012,
+            RELEASE_ENERGY: 0.8,
+            NEIGHBOR_COUPLING: 0.8,
+            RESET_POTENTIAL_LOW: 0.0,
+            RESET_POTENTIAL_HIGH: 0.1,
+            CLICK_RADIUS_FACTOR: 0.3,
+            RENDER_INTERVAL_MS: 16.7, // Approx 60fps
+            TARGET_RESOLUTION_FACTOR: 2, // Lower = higher res (e.g., 1 = full, 2 = half)
+            MIN_GRID_SIZE: 10,
+            RESIZE_DEBOUNCE_DELAY: 250, // ms
+        };
+
+        // --- Current Simulation Parameters (Mutable) ---
+        // Initialize with defaults, these will be changed by the UI
+        let simulationParams = { ...defaultParams };
+
+        // --- Parameter Descriptions ---
+        const paramDescriptions = {
+            THRESHOLD: "Potential value a neuron must reach to fire.",
+            FLUCTUATION_AMOUNT: "Max random potential added each step.",
+            RELEASE_ENERGY: "Total energy released by a firing neuron.",
+            NEIGHBOR_COUPLING: "Fraction of released energy distributed to neighbors.",
+            RESET_POTENTIAL_LOW: "Minimum potential after firing.",
+            RESET_POTENTIAL_HIGH: "Maximum potential after firing.",
+            CLICK_RADIUS_FACTOR: "Interaction radius as fraction of smaller grid dimension.",
+            RENDER_INTERVAL_MS: "Target time (ms) between simulation draws (lower=faster render).",
+            TARGET_RESOLUTION_FACTOR: "Divisor for window size to get internal grid resolution (1=Full, 2=Half). Requires resize.",
+            MIN_GRID_SIZE: "Minimum width/height of the simulation grid. Requires resize.",
+            RESIZE_DEBOUNCE_DELAY: "Delay (ms) after window resize before simulation adapts. Requires refresh to apply fully.",
+        };
+
+        // --- Derived/State Variables (Calculated based on params) ---
+        let ENERGY_PER_NEIGHBOR = (simulationParams.RELEASE_ENERGY * simulationParams.NEIGHBOR_COUPLING) / 8.0;
+        let currentClickRadius = 10; // Will be updated on resize
+
+        // --- Canvas Setup ---
+        const canvas = document.getElementById('simulationCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false }); // alpha: false might improve performance
+
+        // --- Dynamic Simulation Size Variables ---
+        let MATRIX_WIDTH = 100; // Initial placeholder, will be overwritten
+        let MATRIX_HEIGHT = 100; // Initial placeholder
+
+        // --- Simulation State Arrays (will be resized) ---
+        let neuron_potential;
+        let fired_mask;
+        let potential_increase;
+        let imageData; // To store pixel data
+        let data;      // Reference to imageData.data buffer
+
+        // --- UI Element References ---
+        const settingsPanel = document.getElementById('settingsPanel');
+        const settingsIcon = document.getElementById('settingsIcon');
+        const settingsContent = document.getElementById('settingsContent');
+        const settingsCloseButton = document.getElementById('settingsCloseButton');
+        const settingsResetButton = document.getElementById('settingsResetButton');
+        let settingsIconTimeout;
+
+        // --- Debounce Function ---
+        function debounce(func, wait) {
+            let timeout;
+            // Store the wait time so it can be potentially changed later if needed
+            // Although changing it dynamically without recreating the debounced function is tricky
+            let currentWait = wait;
+
+            const debounced = function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                // Use the potentially updated wait time from simulationParams
+                // Note: This only affects *future* calls after the param changes.
+                // A currently pending timeout will use the old delay.
+                // For simplicity, we'll stick to the initial delay unless refreshed.
+                // currentWait = simulationParams.RESIZE_DEBOUNCE_DELAY; // Uncomment if dynamic change is desired, but has caveats.
+                timeout = setTimeout(later, currentWait);
+            };
+
+            // Allow updating the wait time externally if needed (though not used here currently)
+            debounced.updateWait = (newWait) => {
+                currentWait = newWait;
+            };
+
+            return debounced;
+        }
+
+
+        // --- Settings Panel Logic ---
+        function toggleSettingsPanel(show) {
+            if (show) {
+                populateSettingsPanel(); // Refresh content when showing
+                settingsPanel.style.display = 'block';
+                // If icon was visible and clicked, clear its hide timeout
+                if (settingsIconTimeout) clearTimeout(settingsIconTimeout);
+                settingsIcon.style.opacity = '0'; // Hide icon when panel is open
+                settingsIcon.style.pointerEvents = 'none';
+            } else {
+                settingsPanel.style.display = 'none';
+            }
+        }
+
+        function populateSettingsPanel() {
+            settingsContent.innerHTML = ''; // Clear previous content
+
+            for (const key in simulationParams) {
+                if (simulationParams.hasOwnProperty(key)) {
+                    const value = simulationParams[key];
+                    const description = paramDescriptions[key] || 'No description available.';
+                    const defaultValue = defaultParams[key];
+
+                    const row = document.createElement('div');
+                    row.className = 'settings-row';
+
+                    const label = document.createElement('label');
+                    label.setAttribute('for', `param-${key}`);
+                    label.textContent = key.replace(/_/g, ' '); // Make label more readable
+
+                    const input = document.createElement('input');
+                    input.type = 'number'; // Assume number for most
+                    input.id = `param-${key}`;
+                    input.value = value;
+                    // Add step attribute for finer control
+                    if (key === 'THRESHOLD' || key === 'FLUCTUATION_AMOUNT' || key === 'RELEASE_ENERGY' || key === 'NEIGHBOR_COUPLING' || key === 'RESET_POTENTIAL_LOW' || key === 'RESET_POTENTIAL_HIGH' || key === 'CLICK_RADIUS_FACTOR') {
+                        input.step = '0.01';
+                    } else if (key === 'RENDER_INTERVAL_MS') {
+                         input.step = '1';
+                    } else if (key === 'TARGET_RESOLUTION_FACTOR') {
+                         input.step = '0.1';
+                         input.min = '0.5'; // Prevent zero or negative
+                    } else if (key === 'MIN_GRID_SIZE' || key === 'RESIZE_DEBOUNCE_DELAY') {
+                         input.step = '1';
+                         input.min = '1';
+                    }
+
+
+                    const help = document.createElement('span');
+                    help.className = 'help-icon';
+                    help.textContent = '?';
+                    help.title = description; // Use title attribute for tooltip
+
+                    label.appendChild(help); // Add help icon next to label text
+                    row.appendChild(label);
+                    row.appendChild(input);
+                    settingsContent.appendChild(row);
+
+                    // Add event listener to update the actual parameter on input change
+                    input.addEventListener('input', (e) => {
+                        let newValue = parseFloat(e.target.value); // Or parseInt if integer needed
+                        if (isNaN(newValue)) {
+                            // Handle invalid input, maybe revert or show error
+                            // For now, just don't update if not a number
+                            return;
+                        }
+
+                        // Apply constraints if needed (e.g., min/max values)
+                        if (key === 'TARGET_RESOLUTION_FACTOR') newValue = Math.max(0.5, newValue);
+                        if (key === 'MIN_GRID_SIZE' || key === 'RESIZE_DEBOUNCE_DELAY') newValue = Math.max(1, newValue);
+                        if (key === 'RENDER_INTERVAL_MS') newValue = Math.max(1, newValue); // Prevent too fast interval
+
+
+                        simulationParams[key] = newValue;
+
+                        // --- Apply immediate changes for specific parameters ---
+                        // Recalculate derived values
+                        if (key === 'RELEASE_ENERGY' || key === 'NEIGHBOR_COUPLING') {
+                            ENERGY_PER_NEIGHBOR = (simulationParams.RELEASE_ENERGY * simulationParams.NEIGHBOR_COUPLING) / 8.0;
+                        }
+                        // Trigger resize if resolution/grid size changes
+                        if (key === 'TARGET_RESOLUTION_FACTOR' || key === 'MIN_GRID_SIZE') {
+                             console.log(`Parameter ${key} changed, triggering resize...`);
+                             // Call resize directly, bypassing debounce for immediate effect
+                             resizeCanvasAndSimulation();
+                        }
+                        // Note: Changing RESIZE_DEBOUNCE_DELAY here won't affect the *currently running* debounced function easily.
+                        // A page refresh is the simplest way to apply it.
+                        if (key === 'RESIZE_DEBOUNCE_DELAY') {
+                             console.warn("RESIZE_DEBOUNCE_DELAY changed. Refresh page for the new delay to fully apply to window resizing.");
+                             // Optionally, update the debounced function's internal wait time if implemented
+                             // debouncedResizeHandler.updateWait(newValue); // If updateWait was added to debounce
+                        }
+                         // Update click radius factor immediately
+                         if (key === 'CLICK_RADIUS_FACTOR') {
+                             currentClickRadius = Math.max(5, Math.floor(Math.min(MATRIX_WIDTH, MATRIX_HEIGHT) * simulationParams.CLICK_RADIUS_FACTOR));
+                             console.log(`Interaction radius factor changed. New radius (pixels): ${currentClickRadius}`);
+                         }
+                    });
+                }
+            }
+        }
+
+        // --- Resize and Reinitialize Function ---
+        function resizeCanvasAndSimulation() {
+            console.log("Resizing simulation...");
+
+            // Use parameters from simulationParams object
+            const factor = simulationParams.TARGET_RESOLUTION_FACTOR;
+            const minSize = simulationParams.MIN_GRID_SIZE;
+
+            // Calculate target internal resolution
+            const targetWidth = Math.max(minSize, Math.floor(window.innerWidth / factor));
+            const targetHeight = Math.max(minSize, Math.floor(window.innerHeight / factor));
+
+            // Only resize if dimensions actually changed
+            if (targetWidth === MATRIX_WIDTH && targetHeight === MATRIX_HEIGHT && neuron_potential) { // Also check if already initialized
+                 console.log("Dimensions haven't changed significantly, skipping resize.");
+                 return;
+            }
+
+            MATRIX_WIDTH = targetWidth;
+            MATRIX_HEIGHT = targetHeight;
+            const numNeurons = MATRIX_WIDTH * MATRIX_HEIGHT;
+
+            console.log(`New internal resolution: ${MATRIX_WIDTH} x ${MATRIX_HEIGHT}`);
+
+            // Update canvas internal resolution
+            canvas.width = MATRIX_WIDTH;
+            canvas.height = MATRIX_HEIGHT;
+
+            // Update size-dependent parameters (using values from simulationParams)
+            ENERGY_PER_NEIGHBOR = (simulationParams.RELEASE_ENERGY * simulationParams.NEIGHBOR_COUPLING) / 8.0; // Constant per neighbor
+            currentClickRadius = Math.max(5, Math.floor(Math.min(MATRIX_WIDTH, MATRIX_HEIGHT) * simulationParams.CLICK_RADIUS_FACTOR));
+            console.log(`Interaction radius (pixels): ${currentClickRadius}`);
+
+
+            // Re-create simulation state arrays
+            try {
+                // Clear previous arrays first to potentially help GC
+                neuron_potential = null;
+                fired_mask = null;
+                potential_increase = null;
+                imageData = null;
+                data = null;
+
+                neuron_potential = new Float32Array(numNeurons);
+                fired_mask = new Uint8Array(numNeurons);
+                potential_increase = new Float32Array(numNeurons);
+            } catch (e) {
+                console.error("Error allocating simulation arrays. Possibly too large?", e);
+                alert("Failed to allocate memory for simulation. The window might be too large or resolution factor too small.");
+                // Stop the simulation by preventing loop continuation
+                neuron_potential = null; // Ensure checks fail
+                return;
+            }
+
+
+            // Re-create ImageData for drawing
+            imageData = ctx.createImageData(MATRIX_WIDTH, MATRIX_HEIGHT);
+            data = imageData.data; // Get reference to the pixel buffer
+
+            // Re-initialize neuron state
+            initializeNeurons();
+        }
+
+        // Create a debounced version of the resize handler using the initial delay
+        // Note: If RESIZE_DEBOUNCE_DELAY is changed in settings, this specific instance
+        // won't automatically update its delay without more complex handling or recreation.
+        const debouncedResizeHandler = debounce(resizeCanvasAndSimulation, simulationParams.RESIZE_DEBOUNCE_DELAY);
+
+        // Add resize event listener
+        window.addEventListener('resize', debouncedResizeHandler);
+
+
+        // --- Initialize Neuron State ---
+        function initializeNeurons() {
+            if (!neuron_potential) return; // Don't run if arrays aren't allocated yet
+            const low = simulationParams.RESET_POTENTIAL_LOW;
+            const high = simulationParams.RESET_POTENTIAL_HIGH;
+            for (let i = 0; i < neuron_potential.length; i++) {
+                neuron_potential[i] = Math.random() * (high - low) + low;
+            }
+             console.log("Neurons Initialized.");
+        }
+
+        // --- Helper Functions ---
+        function getIndex(x, y) {
+             if (MATRIX_WIDTH <= 0 || MATRIX_HEIGHT <= 0) {
+                 console.error("Invalid MATRIX dimensions:", MATRIX_WIDTH, MATRIX_HEIGHT);
+                 return 0;
+             }
+            const wrappedX = (x + MATRIX_WIDTH) % MATRIX_WIDTH;
+            const wrappedY = (y + MATRIX_HEIGHT) % MATRIX_HEIGHT;
+            return wrappedY * MATRIX_WIDTH + wrappedX;
+        }
+
+        // --- Interaction Handling ---
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+        let isMouseInside = false;
+
+        function handleInteraction(screenX, screenY, action) {
+             if (!neuron_potential || MATRIX_WIDTH <= 0 || MATRIX_HEIGHT <= 0) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const canvasXRelative = screenX - rect.left;
+            const canvasYRelative = screenY - rect.top;
+
+             if (rect.width <= 0 || rect.height <= 0) return;
+
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const matrix_x = Math.floor(canvasXRelative * scaleX);
+            const matrix_y = Math.floor(canvasYRelative * scaleY);
+
+            // Use dynamically calculated radius based on current params
+            const radius = currentClickRadius;
+            const threshold = simulationParams.THRESHOLD; // Use current threshold
+            const resetLow = simulationParams.RESET_POTENTIAL_LOW; // Use current reset value
+
+            for (let dy = -radius; dy <= radius; dy++) {
+                for (let dx = -radius; dx <= radius; dx++) {
+                    if (dx*dx + dy*dy > radius*radius) continue;
+
+                    const currentX = matrix_x + dx;
+                    const currentY = matrix_y + dy;
+
+                    if (currentX >= 0 && currentX < MATRIX_WIDTH && currentY >= 0 && currentY < MATRIX_HEIGHT) {
+                         const index = currentY * MATRIX_WIDTH + currentX;
+                         if (index >= 0 && index < neuron_potential.length) {
+                             if (action === 'excite') {
+                                 neuron_potential[index] = threshold; // Excite to current threshold
+                             } else if (action === 'suppress') {
+                                 neuron_potential[index] = resetLow; // Suppress to current reset low
+                             }
+                         }
+                    }
+                }
+            }
+             // Force redraw only if rendering is slow enough to warrant it
+             if (simulationParams.RENDER_INTERVAL_MS > 30) { // Arbitrary threshold for "slow"
+                 draw();
+             }
+        }
+
+        // Mouse Click (Left Button = Excite)
+        window.addEventListener('mousedown', (event) => {
+            if (event.button === 0) { // 0 is the left button
+                // Prevent click if it's on the settings panel
+                if (settingsPanel.contains(event.target)) return;
+                handleInteraction(event.clientX, event.clientY, 'excite');
+            }
+        });
+
+        // Key Press ('x' or 'X' = Suppress, '\' = Settings)
+        window.addEventListener('keydown', (event) => {
+            // Allow settings toggle even if input field is focused
+            if (event.key === '\\') {
+                event.preventDefault(); // Prevent typing '\' in input fields
+                toggleSettingsPanel(settingsPanel.style.display === 'none');
+                return; // Don't process other keys if settings toggled
+            }
+
+            // Don't process simulation keys if an input field has focus
+             if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+                 return;
+             }
+
+            if (!isMouseInside) return; // Only suppress if mouse is over the canvas area
+
+            if (event.key === 'x' || event.key === 'X') {
+                 handleInteraction(lastMouseX, lastMouseY, 'suppress');
+            }
+        });
+
+        // Track mouse position
+        window.addEventListener('mousemove', (event) => {
+            lastMouseX = event.clientX;
+            lastMouseY = event.clientY;
+            const rect = canvas.getBoundingClientRect();
+             isMouseInside = (
+                lastMouseX >= rect.left && lastMouseX <= rect.right &&
+                lastMouseY >= rect.top && lastMouseY <= rect.bottom
+            );
+        });
+         window.addEventListener('mouseout', (event) => {
+             if (event.relatedTarget === null) {
+                 isMouseInside = false;
+            }
+        });
+         canvas.addEventListener('mouseenter', () => { isMouseInside = true; });
+         canvas.addEventListener('mouseleave', () => { isMouseInside = false; });
+
+        // Settings Panel Event Listeners
+        settingsIcon.addEventListener('click', () => toggleSettingsPanel(true));
+        settingsCloseButton.addEventListener('click', () => toggleSettingsPanel(false));
+        settingsResetButton.addEventListener('click', () => {
+            console.log("Resetting parameters to defaults...");
+            simulationParams = { ...defaultParams }; // Reset current params
+            // Recalculate derived values
+            ENERGY_PER_NEIGHBOR = (simulationParams.RELEASE_ENERGY * simulationParams.NEIGHBOR_COUPLING) / 8.0;
+            populateSettingsPanel(); // Update the UI fields
+            // Trigger resize if resolution/grid defaults require it
+            // (This check is important if defaults differ from current state)
+            resizeCanvasAndSimulation(); // Always resize on reset to be safe
+        });
+
+        // Initial Icon Hide Timer
+        settingsIconTimeout = setTimeout(() => {
+            settingsIcon.style.opacity = '0';
+            settingsIcon.style.pointerEvents = 'none';
+        }, 5000); // 5 seconds
+
+
+        // --- Simulation Step ---
+        function simulationStep() {
+            if (!neuron_potential || !fired_mask || !potential_increase || MATRIX_WIDTH <= 0 || MATRIX_HEIGHT <= 0) {
+                // console.warn("Simulation step skipped: Not initialized or invalid dimensions.");
+                return; // Silently return if not ready
+            }
+
+            potential_increase.fill(0);
+
+            // Use current parameters from simulationParams
+            const fluctuation = simulationParams.FLUCTUATION_AMOUNT;
+            const threshold = simulationParams.THRESHOLD;
+            const resetLow = simulationParams.RESET_POTENTIAL_LOW;
+            const resetHigh = simulationParams.RESET_POTENTIAL_HIGH;
+            const energyPerNeighbor = ENERGY_PER_NEIGHBOR; // Use calculated value
+
+            // 1. Fluctuations & Firing Check
+            for (let i = 0; i < neuron_potential.length; i++) {
+                neuron_potential[i] += Math.random() * fluctuation;
+                fired_mask[i] = (neuron_potential[i] >= threshold) ? 1 : 0;
+            }
+
+            // 2. Energy Transfer Calculation
+             const width = MATRIX_WIDTH;
+             const height = MATRIX_HEIGHT;
+             for (let y = 0; y < height; y++) {
+                 for (let x = 0; x < width; x++) {
+                    let firing_neighbor_count = 0;
+                    // Check 8 neighbors (toroidal)
+                    if (fired_mask[getIndex(x - 1, y - 1)]) firing_neighbor_count++;
+                    if (fired_mask[getIndex(x    , y - 1)]) firing_neighbor_count++;
+                    if (fired_mask[getIndex(x + 1, y - 1)]) firing_neighbor_count++;
+                    if (fired_mask[getIndex(x - 1, y    )]) firing_neighbor_count++;
+                    if (fired_mask[getIndex(x + 1, y    )]) firing_neighbor_count++;
+                    if (fired_mask[getIndex(x - 1, y + 1)]) firing_neighbor_count++;
+                    if (fired_mask[getIndex(x    , y + 1)]) firing_neighbor_count++;
+                    if (fired_mask[getIndex(x + 1, y + 1)]) firing_neighbor_count++;
+
+                    if (firing_neighbor_count > 0) {
+                         potential_increase[getIndex(x, y)] = firing_neighbor_count * energyPerNeighbor;
+                    }
+                 }
+             }
+
+            // 3. Apply Potential Increase & Reset Firing Neurons
+            for (let i = 0; i < neuron_potential.length; i++) {
+                if (fired_mask[i] === 1) {
+                    neuron_potential[i] = Math.random() * (resetHigh - resetLow) + resetLow;
+                } else {
+                    neuron_potential[i] += potential_increase[i];
+                }
+            }
+        }
+
+        // --- Visualization ---
+        function draw() {
+             if (!neuron_potential || !data || !imageData || MATRIX_WIDTH <= 0 || MATRIX_HEIGHT <= 0) {
+                 // console.warn("Draw step skipped: Not initialized or invalid dimensions.");
+                 return; // Silently return if not ready
+             }
+             if (neuron_potential.length !== MATRIX_WIDTH * MATRIX_HEIGHT || data.length !== MATRIX_WIDTH * MATRIX_HEIGHT * 4) {
+                 console.error("Mismatch between array lengths and dimensions! Skipping draw.");
+                 // Attempt recovery by resizing? Or just stop? Let's try resizing.
+                 resizeCanvasAndSimulation();
+                 return;
+             }
+
+            const threshold = simulationParams.THRESHOLD; // Use current threshold for scaling
+
+            for (let i = 0; i < neuron_potential.length; i++) {
+                const potential = Math.max(0, Math.min(threshold, neuron_potential[i]));
+                const grayValue = Math.floor((potential / threshold) * 255);
+                const pixelIndex = i * 4;
+                data[pixelIndex]     = grayValue;
+                data[pixelIndex + 1] = grayValue;
+                data[pixelIndex + 2] = grayValue;
+                data[pixelIndex + 3] = 255;
+            }
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        // --- Main Loop ---
+        let animationFrameId = null; // Keep track of the loop
+        function gameLoop() {
+            simulationStep();
+            draw();
+
+            // Schedule next frame using setTimeout with the current interval
+            // Clear previous timeout if it exists (important if interval changes)
+            if (animationFrameId) clearTimeout(animationFrameId);
+            animationFrameId = setTimeout(gameLoop, simulationParams.RENDER_INTERVAL_MS);
+        }
+
+        // --- Start ---
+        // Perform initial resize & setup
+        resizeCanvasAndSimulation();
+
+        // Start the animation loop only if initialization was successful
+        if (neuron_potential) {
+             console.log(`Starting Simulation Loop (rendering every ${simulationParams.RENDER_INTERVAL_MS}ms)...`);
+             gameLoop(); // Start the first frame
+             console.log("Neural Grid Simulation Initialized. Left Click to excite, 'X' key to suppress. Press '\\' for settings.");
+        } else {
+             console.error("Simulation failed to initialize properly. Loop not started.");
+             // Maybe display an error message to the user on the page?
+             const errorDiv = document.createElement('div');
+             errorDiv.style.position = 'fixed';
+             errorDiv.style.top = '10px';
+             errorDiv.style.left = '10px';
+             errorDiv.style.color = 'red';
+             errorDiv.style.backgroundColor = 'rgba(0,0,0,0.7)';
+             errorDiv.style.padding = '10px';
+             errorDiv.textContent = 'Error: Simulation failed to initialize. Check console (F12) for details.';
+             document.body.appendChild(errorDiv);
+        }
+
+    </script>
+
+</body>
+</html>
