@@ -2,6 +2,8 @@
 
 This Python script simulates and visualizes a 2D grid of simple "integrate-and-fire" neurons using the Pygame library for graphics and event handling, and the NumPy library for efficient numerical calculations. It creates a dynamic, evolving visual pattern based on the interactions between neighboring neurons.
 
+![Screenshot showing neural automaton running with 3 stages of an erased circle](image.png)
+
 **Core Functionality:**
 
 1.  **Neuron Grid:** A 2D grid (defined by `MATRIX_WIDTH` and `MATRIX_HEIGHT`) represents the neurons. Each neuron's state is stored as a floating-point "potential" value in a NumPy array (`neuron_potential`).
@@ -15,8 +17,6 @@ This Python script simulates and visualizes a 2D grid of simple "integrate-and-f
     *   **'X' Key Press:** Pressing the 'x' key instantly sets the potential of neurons within a square area (`CLICK_RADIUS`) around the current mouse cursor position to the minimum (`RESET_POTENTIAL_LOW`), effectively suppressing activity in that region.
     *   **Escape Key:** Pressing the Escape key quits the simulation.
 8.  **Configurable Parameters:** Key aspects of the simulation (grid size, threshold, energy levels, fluctuation rate, interaction strength, click radius) are defined as constants at the beginning of the script, allowing for easy experimentation with different behaviors.
-
-[Screenshot showing neural automaton running with 3 stages of an erased circle](image.png)
 
 **Dependencies:**
 
